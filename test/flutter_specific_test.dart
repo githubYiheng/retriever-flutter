@@ -11,6 +11,7 @@ import 'dart:math';
 import 'package:revdog_retriever/src/config_diagnostics.dart';
 import 'package:revdog_retriever/src/fs.dart';
 import 'package:revdog_retriever/src/limits.dart';
+import 'package:revdog_retriever/src/platform.dart';
 import 'package:test/test.dart';
 
 import 'support/support.dart';
@@ -503,4 +504,93 @@ void main() {
     expect(ticks, greaterThan(0));
     expect(maxLag, lessThan(50 * 1000), reason: 'max lag ${maxLag ~/ 1000} ms');
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  /// bootstrap 回包与其后事件的次序（切片 2 模拟器实测）：原生已判 owner=false、回包在途时，旧 owner detach 发出的 ownerReleased（或回前台的
+  /// willEnterForeground）先到 Dart——3.38 起平台 / UI 线程合一，原生 → Dart 的消息可同步派发、回包排队投递。门面在 bootstrapping 态记下，
+  /// 回包是非 owner 就立即重试 → 接任；不记就卡在非 owner，等 60 s 触达或下次回前台。
+  group('bootstrap 回包与事件次序', () {
+    for (final event in <String>['ownerReleased', 'willEnterForeground']) {
+      test('${event}BeforeNonOwnerReplyRetriesImmediately', () async {
+        final p = _ScriptedOwnerPlatform(<bool>[false, true]);
+        await StaticHarness.create(platform: p);
+        final gate = Completer<void>();
+        p.bootstrapGate = gate;
+        final f = Retriever.configure('', baseUrl: base);
+        await waitUntil(() => p.bootstrapCalls == 1 && RetrieverRuntime.state == RetrieverState.bootstrapping);
+        if (event == 'ownerReleased') {
+          p.handler!.ownerReleased();
+        } else {
+          p.handler!.willEnterForeground();
+        }
+        expect(RetrieverRuntime.state, RetrieverState.bootstrapping);
+        gate.complete();
+        await f;
+        await waitClient();
+        expect(p.bootstrapCalls, 2, reason: '回包是非 owner → 立即重试一次');
+        expect(RetrieverRuntime.state, RetrieverState.ready);
+        expect(Retriever.installId, isNotNull);
+      });
+    }
+
+    test('eventDuringOwnerBootstrapIsHarmless', () async {
+      final p = _ScriptedOwnerPlatform(<bool>[true]);
+      await StaticHarness.create(platform: p);
+      final gate = Completer<void>();
+      p.bootstrapGate = gate;
+      final f = Retriever.configure('', baseUrl: base);
+      await waitUntil(() => p.bootstrapCalls == 1);
+      p.handler!.ownerReleased();
+      gate.complete();
+      await f;
+      await waitClient();
+      await pump();
+      expect(p.bootstrapCalls, 1);
+      expect(RetrieverRuntime.state, RetrieverState.ready);
+    });
+
+    test('flagDoesNotLeakIntoLaterBootstrap', () async {
+      // 第一次 bootstrap 期间收到事件、但回包失败（failed）；下一次显式 configure 回非 owner：标志已在新一轮 bootstrap 开始时清掉，不立即重试
+      final p = _ScriptedOwnerPlatform(<bool>[false, false, true])..failNext = true;
+      await StaticHarness.create(platform: p);
+      final gate = Completer<void>();
+      p.bootstrapGate = gate;
+      final f = Retriever.configure('', baseUrl: base);
+      await waitUntil(() => p.bootstrapCalls == 1);
+      p.handler!.ownerReleased();
+      gate.complete();
+      await f;
+      expect(RetrieverRuntime.state, RetrieverState.failed);
+      await Retriever.configure('', baseUrl: base);
+      await pump();
+      expect(RetrieverRuntime.state, RetrieverState.nonOwner);
+      expect(p.bootstrapCalls, 2);
+    });
+  });
+}
+
+/// bootstrap 按脚本回 owner（调用时就取值，闸门之后才回包）；`failNext` = 下一次回包抛垫片错误。
+class _ScriptedOwnerPlatform extends FakePlatform {
+  _ScriptedOwnerPlatform(this.owners);
+
+  final List<bool> owners;
+  bool failNext = false;
+
+  @override
+  Future<BootstrapInfo> bootstrap() async {
+    bootstrapCalls++;
+    final owner = owners.isEmpty ? true : owners.removeAt(0);
+    final fail = failNext;
+    failNext = false;
+    final gate = bootstrapGate;
+    if (gate != null) await gate.future;
+    if (fail) throw const PlatformCallException('boom', 'scripted failure');
+    return BootstrapInfo(
+      owner: owner,
+      root: rootPath!,
+      token: token,
+      process: processName,
+      foreground: foreground,
+      device: deviceFields,
+    );
+  }
 }

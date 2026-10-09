@@ -266,7 +266,8 @@ class Engine {
     if (!await Fs.ensureDir(dir)) return false;
     // 先加会话锁、再写 meta：别的进程的恢复流程永远看不到「有 meta、没锁」的活会话
     await lockSessionDir(dir);
-    final meta = SessionMeta(sid, result.sessionNo, now, device, processName, inst.installId, adoptPre);
+    // `token`：本进程令牌——下一任 owner 若在同一进程里恢复这个会话（引擎被销毁、进程还活着），不当崩溃（recovery.dart）
+    final meta = SessionMeta(sid, result.sessionNo, now, device, processName, inst.installId, adoptPre, token);
     if (!await Fs.writeAtomic(Fs.join(dir, 'meta.json'), meta.encode())) {
       releaseSessionLock();
       await Fs.remove(dir);

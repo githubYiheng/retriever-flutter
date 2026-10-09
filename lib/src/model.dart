@@ -152,6 +152,7 @@ class SessionMeta {
     this.process, [
     this.installId,
     this.pre,
+    this.token,
   ]);
 
   final String sessionId;
@@ -162,6 +163,10 @@ class SessionMeta {
   final String? installId;
   final String? pre;
 
+  /// 写这个会话的进程令牌（Flutter 专有可选键 `token`，垫片 `bootstrap()` 回包的进程级 UUID；切片 2 主代理裁决）。
+  /// 启动恢复据此区分「同一进程里 owner 引擎被销毁」（不是崩溃）与「进程死了」；Android / iOS 原生 SDK 不写 = 旧语义。
+  final String? token;
+
   SessionMeta copyWith({Object? pre = _unset, Object? installId = _unset}) => SessionMeta(
     sessionId,
     sessionNo,
@@ -170,6 +175,7 @@ class SessionMeta {
     process,
     identical(installId, _unset) ? this.installId : installId as String?,
     identical(pre, _unset) ? this.pre : pre as String?,
+    token,
   );
 
   Uint8List encode() {
@@ -192,6 +198,10 @@ class SessionMeta {
       o.raw(',"pre":');
       o.string(pre!);
     }
+    if (token != null) {
+      o.raw(',"token":');
+      o.string(token!);
+    }
     o.raw('}');
     return o.toBytes();
   }
@@ -210,7 +220,9 @@ class SessionMeta {
     final preRaw = o['pre'];
     final pre = preRaw is String && isPreName(preRaw) ? preRaw : null;
     final proc = o['process'];
-    return SessionMeta(sid, no, JsonIn.int64(o['started_ms']) ?? 0, dev, proc is String ? proc : 'main', iid, pre);
+    final tokRaw = o['token'];
+    final tok = tokRaw is String && Ids.isUuid(tokRaw) ? tokRaw : null;
+    return SessionMeta(sid, no, JsonIn.int64(o['started_ms']) ?? 0, dev, proc is String ? proc : 'main', iid, pre, tok);
   }
 
   /// pre 文件名（只认这两个形状：meta 里的名字会被拼进路径）：

@@ -1,4 +1,4 @@
-// 引擎纯度门禁（v3 §6 / 切片 1 简报）：`lib/src/**` 不 import flutter / dart:ui（`channel_platform.dart` 例外，切片 2）；
+// 引擎纯度门禁（v3 §6 / 切片 1 简报）：`lib/src/**` 不 import flutter / dart:ui（`channel_platform.dart` 例外，切片 2 起必须存在）；
 // web 条件导入只用 `dart.library.io`；`lib/logger.dart` 只经公开门面与桥接触引擎；引擎不碰宿主的 HttpOverrides.runZoned。
 
 import 'dart:io';
@@ -55,11 +55,19 @@ void main() {
     }
   });
 
-  test('slice1DoesNotShipPlatformCode', () {
-    // 切片 1 范围：不写 channel_platform.dart / ios / android / example（切片 2）
-    expect(File('$pkg/lib/src/channel_platform.dart').existsSync(), isFalse);
-    for (final d in ['ios', 'android', 'example']) {
-      expect(Directory('$pkg/$d').existsSync(), isFalse, reason: d);
+  test('platformShimAndPluginEntryShipped', () {
+    // 切片 2 起：垫片、插件入口、示例都在；lib/src 里仍只有 channel_platform.dart 允许 import flutter（plugin_entry.dart 不 import）
+    for (final f in ['lib/src/channel_platform.dart', 'lib/src/plugin_entry.dart']) {
+      expect(File('$pkg/$f').existsSync(), isTrue, reason: f);
     }
+    for (final d in ['ios', 'android', 'example']) {
+      expect(Directory('$pkg/$d').existsSync(), isTrue, reason: d);
+    }
+    final flutterImporters = [
+      for (final f in dartFiles('$pkg/lib/src'))
+        if (RegExp(r'''(import|export)\s+['"](package:flutter/|dart:ui)''').hasMatch(f.readAsStringSync()))
+          f.path.substring(f.path.lastIndexOf('/') + 1),
+    ];
+    expect(flutterImporters, ['channel_platform.dart']);
   });
 }

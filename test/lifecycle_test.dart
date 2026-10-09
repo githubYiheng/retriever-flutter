@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:revdog_retriever/src/fs.dart';
 import 'package:revdog_retriever/src/limits.dart';
+import 'package:revdog_retriever/src/model.dart';
 import 'package:test/test.dart';
 
 import 'support/support.dart';
@@ -76,6 +77,70 @@ void main() {
     expect(closed['exit'], 'clean_bg');
     // 后台被杀是常态：不合成 unclean_exit
     expect(b.envelopes().any((e) => e.lines.any((l) => l['synthetic'] == true)), isFalse);
+  });
+
+  // —— 同一进程里 owner 引擎被销毁（切片 2 主代理裁决）：meta.token = 本进程令牌、last_state fg → clean_bg，不合成 rtv.unclean_exit ——
+
+  /// 跑一个前台会话 A（一行 warn）后「销毁引擎」；返回 (A 的会话 id, A 的会话目录, A 的令牌)。
+  Future<(String, String, String)> foregroundSessionThenEngineDestroyed(String root) async {
+    final a = await Harness.create(root: root, key: '');
+    await a.settle();
+    a.l(LogLevel.warn, 'owner engine line');
+    await a.settle();
+    expect(cursor(a)['last_state'], 'fg');
+    final sid = a.client.writer.currentSessionId;
+    final dir = a.sessionDir();
+    expect(a.readJson('$dir/meta.json')['token'], a.platform.token, reason: '会话 meta 带本进程令牌');
+    await a.simulateCrash();
+    return (sid, dir, a.platform.token);
+  }
+
+  test('sameProcessEngineDestroyedForegroundIsCleanBg', () async {
+    final root = tempDir();
+    final (aSid, _, token) = await foregroundSessionThenEngineDestroyed(root);
+    // 同一进程里的下一任 owner（同令牌）
+    final b = await Harness.create(root: root, key: '', platform: _SameProcessPlatform(token));
+    await b.settle();
+    final closed = b.readJsonl('sessions.jsonl').firstWhere((c) => c['session_id'] == aSid);
+    expect(closed['exit'], 'clean_bg');
+    final aLines = [
+      for (final e in b.envelopes())
+        if (e['session_id'] == aSid) ...e.lines,
+    ];
+    expect(aLines.map((l) => l['msg']), contains('owner engine line'), reason: '旧会话的义务行照常物化');
+    expect(aLines.any((l) => l['tag'] == 'rtv.unclean_exit'), isFalse, reason: '引擎在进程内被销毁不是崩溃');
+  });
+
+  test('otherProcessForegroundDeathStillUncleanExit', () async {
+    final root = tempDir();
+    final (aSid, _, _) = await foregroundSessionThenEngineDestroyed(root);
+    final b = await Harness.create(root: root, key: ''); // 新进程：令牌不同
+    await b.settle();
+    final closed = b.readJsonl('sessions.jsonl').firstWhere((c) => c['session_id'] == aSid);
+    expect(closed['exit'], 'unclean_fg');
+    expect(
+      b
+          .envelopes()
+          .where((e) => e['session_id'] == aSid)
+          .any((e) => e.lines.any((l) => l['tag'] == 'rtv.unclean_exit')),
+      isTrue,
+    );
+  });
+
+  test('metaWithoutTokenKeepsOldRule', () async {
+    // 原生 SDK（Android 0.3.0 / iOS）写的 meta 没有 token 键：即使令牌碰巧相同也按旧规则判 unclean_fg
+    final root = tempDir();
+    final (aSid, dir, token) = await foregroundSessionThenEngineDestroyed(root);
+    final m = SessionMeta.decode(File('$dir/meta.json').readAsBytesSync())!;
+    expect(m.token, token);
+    File('$dir/meta.json').writeAsBytesSync(
+      SessionMeta(m.sessionId, m.sessionNo, m.startedMs, m.device, m.process, m.installId, m.pre).encode(),
+    );
+    expect(File('$dir/meta.json').readAsStringSync().contains('"token"'), isFalse);
+    final b = await Harness.create(root: root, key: '', platform: _SameProcessPlatform(token));
+    await b.settle();
+    final closed = b.readJsonl('sessions.jsonl').firstWhere((c) => c['session_id'] == aSid);
+    expect(closed['exit'], 'unclean_fg');
   });
 
   test('foregroundWritesLastStateAndDrains', () async {
@@ -222,4 +287,14 @@ void main() {
     expect(h2.readJsonl('sessions.jsonl').singleWhere((c) => c['session_id'] == sid)['exit'], 'unknown');
     expect(File('${h.root}/proc-main/$sid/seg-000001.sealed').existsSync(), isTrue);
   });
+}
+
+/// 同一进程里的下一任 owner：令牌固定为 [token]（Harness 默认每次换令牌 = 新进程）。
+class _SameProcessPlatform extends FakePlatform {
+  _SameProcessPlatform(String token) {
+    this.token = token;
+  }
+
+  @override
+  void newProcess() {}
 }

@@ -1,0 +1,4 @@
+#include "Generated.xcconfig"
+// Xcode 27 的 lipo 不再接受 `-verify_arch arm64 x86_64`（多个架构）：Flutter 3.44.4 的 thinFramework 在 generic 模拟器目标上失败。
+// 示例只给 Apple Silicon 模拟器构建（REPORT-slice2 §7）。
+ARCHS[sdk=iphonesimulator*] = arm64

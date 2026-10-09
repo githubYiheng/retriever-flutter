@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 上传批次与拉远程配置（Flutter 模板的 release 清单不带 INTERNET） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- registerDefaultNetworkCallback（只用于网络恢复时提前唤醒） -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- JobInfo.Builder.setPersisted(true) 的前提：没有它 schedule() 抛异常（垫片退回非持久作业） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!--
+          后台兜底上传（方案 §3.9；ADR 0003 决定 13；ADR 0007 D1）：进后台时由 owner 引擎排一个一次性作业（网络约束、持久化）；
+          作业里经 owner 引擎的 channel 让 Dart 排空出站箱。进程里没有 owner 引擎（没 configure / 进程刚被作业拉起）→ 直接结束。
+          只有系统（持有 BIND_JOB_SERVICE）能绑定它。
+        -->
+        <service
+            android:name="org.revdog.retriever.flutter.RetrieverUploadJobService"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!--
+          进程级前后台 tracker 从进程一开始就对（v3 §1.4）：Application.onCreate 之前注册 ActivityLifecycleCallbacks，无 I/O。
+          authority 带 ${applicationId} 前缀 + 本插件专属后缀，与原生 SDK 的 `.retriever-init` 不同（同 authority 会静默丢一个，
+          核实 round2 #15）；类名也不同。initOrder 调高：早于多数库的 provider。宿主可用 tools:node="remove" 去掉
+          （之后由 onAttachedToEngine 兜底注册，初值取进程重要性）。
+        -->
+        <provider
+            android:name="org.revdog.retriever.flutter.RetrieverInitProvider"
+            android:authorities="${applicationId}.revdog_retriever.init"
+            android:exported="false"
+            android:initOrder="1000" />
+    </application>
+</manifest>

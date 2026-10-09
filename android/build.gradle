@@ -1,0 +1,56 @@
+// Retriever Flutter 插件的 Android 垫片：纯 Java、不 apply KGP（3.44 built-in Kotlin 迁移只针对已用 KGP 的插件，核实 refresh §3）。
+// minSdk 21；API 24 起才有的能力（getPendingJob、默认网络回调）在代码里按版本守卫（v2 C4）。
+group = "org.revdog.retriever.flutter"
+version = "0.1.0"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        // 宿主的 AGP 优先（父 classloader）；这里只给独立构建用，取 3.32 模板的版本以免抬高下限
+        classpath("com.android.tools.build:gradle:8.7.3")
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "org.revdog.retriever.flutter"
+
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        minSdk = 21
+    }
+
+    dependencies {
+        testImplementation("junit:junit:4.13.2")
+    }
+
+    testOptions {
+        // 纯 JVM 单测：android.jar 的桩方法回默认值（Application() / Activity() 只当身份用）
+        unitTests.returnDefaultValues = true
+        unitTests.all {
+            testLogging {
+                events "passed", "skipped", "failed", "standardOut", "standardError"
+                outputs.upToDateWhen { false }
+                showStandardStreams = true
+            }
+        }
+    }
+}

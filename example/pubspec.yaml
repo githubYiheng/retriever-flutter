@@ -1,0 +1,20 @@
+name: revdog_retriever_example
+description: "Retriever Flutter plugin example: scenario buttons for simulator acceptance."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.8.0
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  revdog_retriever:
+    path: ../
+
+dev_dependencies:
+  flutter_lints: ">=5.0.0 <7.0.0"
+
+flutter:
+  uses-material-design: true

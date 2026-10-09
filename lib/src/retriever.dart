@@ -85,6 +85,11 @@ abstract final class RetrieverRuntime {
   /// 非 owner：上次（进入非 owner 或排上重试）的单调时刻；触达时按 ≥ 60 s 间隔重试（v3 §4）。
   static int? _nonOwnerMono;
 
+  /// bootstrapping 期间收到了 `ownerReleased` / `willEnterForeground`：回包若是非 owner，进 nonOwner 后立即重试一次。
+  /// 3.38 起平台线程与 UI 线程合一，原生 → Dart 的消息可能同步派发、而 bootstrap 的回包排队投递——原生先回 owner=false、
+  /// 随后旧 owner detach 发出的 ownerReleased 会先于回包到达（模拟器实测，切片 2 报告 §5.3），这里不能丢。
+  static bool _retryAfterBootstrap = false;
+
   /// 实例建成之前到达的最近一次前后台事件（true = 前台）与事件序号（审计 #7）。
   static bool? _lastForeground;
   static int _foregroundEvents = 0;
@@ -121,6 +126,7 @@ abstract final class RetrieverRuntime {
     _lastConfigure = null;
     _failMono = null;
     _nonOwnerMono = null;
+    _retryAfterBootstrap = false;
     _lastForeground = null;
     _foregroundEvents = 0;
     internalErrorSink = null;
@@ -414,6 +420,7 @@ abstract final class RetrieverRuntime {
     final p = platform;
     final args = _lastConfigure;
     if (p == null || args == null) return;
+    _retryAfterBootstrap = false;
     state = RetrieverState.bootstrapping;
     BootstrapInfo info;
     try {
@@ -436,6 +443,11 @@ abstract final class RetrieverRuntime {
       state = RetrieverState.nonOwner;
       _nonOwnerMono = _mono();
       ConfigDiagnostics.nonOwner();
+      if (_retryAfterBootstrap) {
+        // 回包在途时 owner 已释放 / 已回前台：立即重试（排在本次 configure 之后）
+        _retryAfterBootstrap = false;
+        retryConfigure(force: true);
+      }
       return;
     }
     final (key, baseUrl, options) = args;
@@ -539,6 +551,7 @@ class _Events implements PlatformEventHandler {
       c.willEnterForeground();
     } else {
       RetrieverRuntime._noteForeground(true);
+      if (RetrieverRuntime.state == RetrieverState.bootstrapping) RetrieverRuntime._retryAfterBootstrap = true;
       RetrieverRuntime.retryConfigure(force: RetrieverRuntime.state == RetrieverState.nonOwner);
     }
   });
@@ -576,7 +589,15 @@ class _Events implements PlatformEventHandler {
 
   @override
   void ownerReleased() => _guard(() {
-    if (RetrieverRuntime.state == RetrieverState.nonOwner) RetrieverRuntime.retryConfigure(force: true);
+    switch (RetrieverRuntime.state) {
+      case RetrieverState.nonOwner:
+        RetrieverRuntime.retryConfigure(force: true);
+      case RetrieverState.bootstrapping:
+        // 回包还没处理：记下，回包若是非 owner 就立即重试（见 [RetrieverRuntime._retryAfterBootstrap]）
+        RetrieverRuntime._retryAfterBootstrap = true;
+      default:
+        break;
+    }
   });
 }
 

@@ -1,4 +1,5 @@
 // 启动恢复（§3.4 ORPHAN）：旧会话截残行、判退出、unclean_fg 合成 error 并按 error 封段带 ctx、旧会话终态写 sessions.jsonl
+// （Flutter：meta.token 等于本进程令牌的 fg 死会话 = 同进程内引擎被销毁 → clean_bg、不合成；切片 2 主代理裁决）
 // （只为 last_oseq > 0 的会话写）；零行的会话目录直接删；段读不出的会话本次不动、下次重试（ADR 0019 决定 1 / 13）；
 // 旧 session_id / user_id / device 一律取持久化值；cursor = max(cursor 文件, 出站箱里本会话最大 oseq_to)。
 // 对位 Android `core/Recovery.kt`，与 iOS `Recovery.swift` 逐字一致。Flutter：段为片段，片段之间让出事件循环。
@@ -166,7 +167,9 @@ extension EngineRecovery on Engine {
         o += 1;
       }
       exit = switch (cursor.lastState) {
-        'fg' => SessionExit.uncleanFg,
+        // 同一进程（meta.token = 本进程令牌）：owner 引擎在进程内被销毁（按返回键、audio_service 释放引擎、换根 VC）从来不是崩溃——
+        // 按 clean_bg 收尾、不合成 rtv.unclean_exit。真崩溃进程已死、令牌必变；缺 token（原生 SDK 写的 meta）= 旧规则
+        'fg' => meta.token != null && meta.token == token ? SessionExit.cleanBg : SessionExit.uncleanFg,
         'bg' => SessionExit.cleanBg,
         _ => SessionExit.unknown,
       };

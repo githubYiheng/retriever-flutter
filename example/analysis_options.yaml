@@ -1,0 +1,9 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # 示例 app 把场景结果打到系统日志（logcat tag flutter / iOS syslog），print 是有意的
+    avoid_print: false
+
+formatter:
+  page_width: 120

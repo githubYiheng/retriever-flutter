@@ -28,5 +28,9 @@ flutter:
       android:
         package: org.revdog.retriever.flutter
         pluginClass: RetrieverPlugin
+        dartPluginClass: RetrieverDartPlugin
+        dartFileName: src/plugin_entry.dart
       ios:
         pluginClass: RetrieverPlugin
+        dartPluginClass: RetrieverDartPlugin
+        dartFileName: src/plugin_entry.dart
