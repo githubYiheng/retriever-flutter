@@ -50,7 +50,14 @@ public final class RetrieverPlugin: NSObject, FlutterPlugin, EngineHandle {
                 return e
             }
         }
-        return (registrar.viewController as? FlutterViewController)?.engine
+        // `registrar.viewController` 3.38 才进公开头文件（pubspec 下限 3.32）：同样走动态调用，老版本落到 nil（.unknown）
+        if let obj = registrar as? NSObject {
+            let vcSel = Selector(("viewController"))
+            if obj.responds(to: vcSel), let vc = obj.perform(vcSel)?.takeUnretainedValue() as? FlutterViewController {
+                return vc.engine
+            }
+        }
+        return nil
     }
 
     // MARK: EngineHandle
