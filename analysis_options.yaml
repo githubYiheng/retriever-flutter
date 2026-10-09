@@ -1,0 +1,11 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # The engine deliberately uses a handful of *Sync file APIs on the log() hot path
+    # (one writeFromSync per line, R-1); these rules would flag that design.
+    avoid_slow_async_io: false
+    avoid_print: false
+
+formatter:
+  page_width: 120

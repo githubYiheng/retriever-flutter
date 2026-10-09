@@ -1,0 +1,12 @@
+# Self-contained ignore list for the Flutter plugin package (also used by the split repo).
+.dart_tool/
+.packages
+build/
+pubspec.lock
+pubspec_overrides.yaml
+.fvm/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+*.iml
+.DS_Store

@@ -1,0 +1,32 @@
+name: revdog_retriever
+description: >-
+  Retriever client log transport for Flutter: a pure-Dart engine (local ring,
+  outbox, upload queue) behind a thin native shim. Same wire format as the
+  Retriever iOS / Android SDKs.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.6
+  logger: ^2.0.0
+
+dev_dependencies:
+  flutter_lints: ">=5.0.0 <7.0.0"
+  flutter_test:
+    sdk: flutter
+  test: ^1.25.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: org.revdog.retriever.flutter
+        pluginClass: RetrieverPlugin
+      ios:
+        pluginClass: RetrieverPlugin
